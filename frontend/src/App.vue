@@ -13,7 +13,7 @@
           :key="tab.key"
           class="dc-tab"
           :class="{ active: tab.key === current }"
-          @click="current = tab.key"
+          @click="switchTab(tab.key)"
         >
           <span class="dc-tab-idx">{{ String(index + 1).padStart(2, '0') }}</span>{{ tab.title }}
         </div>
@@ -26,7 +26,8 @@
         <CoreLogView v-else-if="current === 'core'" />
         <ParamView v-else-if="current === 'param'" />
         <RigView v-else-if="current === 'rig'" />
-        <ShiftReportView v-else />
+        <ShiftReportView v-else-if="current === 'report'" />
+        <HandoverView v-else />
       </main>
 
       <aside class="dc-detail">
@@ -71,21 +72,34 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { detail } from './detail'
+import { navigation } from './navigation'
 import HolesView from './views/HolesView.vue'
 import CoreLogView from './views/CoreLogView.vue'
 import ParamView from './views/ParamView.vue'
 import RigView from './views/RigView.vue'
 import ShiftReportView from './views/ShiftReportView.vue'
+import HandoverView from './views/HandoverView.vue'
 
 const tabs = [
   { key: 'holes', title: '孔位分布' },
   { key: 'core', title: '岩芯编录' },
   { key: 'param', title: '钻进参数' },
   { key: 'rig', title: '钻机班组' },
-  { key: 'report', title: '班报表' }
+  { key: 'report', title: '班报表' },
+  { key: 'handover', title: '终孔交接' }
 ]
 
-const current = ref('holes')
+const current = computed({
+  get: () => navigation.current,
+  set: (value) => { navigation.current = value }
+})
+
+function switchTab(key) {
+  navigation.current = key
+  if (key !== 'handover') {
+    navigation.returnTab = ''
+  }
+}
 const todayText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 
 const jsonText = ref('')

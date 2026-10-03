@@ -12,6 +12,7 @@ CREATE DATABASE IF NOT EXISTS drill_crew
   DEFAULT COLLATE utf8mb4_unicode_ci;
 USE drill_crew;
 
+DROP TABLE IF EXISTS borehole_handover_version;
 DROP TABLE IF EXISTS shift_report;
 DROP TABLE IF EXISTS drill_param_series;
 DROP TABLE IF EXISTS litho_layer;
@@ -159,6 +160,37 @@ CREATE TABLE shift_report (
   KEY idx_shift_rig (rig_id),
   KEY idx_shift_hole (borehole_id),
   KEY idx_shift_date (report_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------- 9. 终孔交接版本（含资料快照与问题清单 JSON） ----------------------------
+CREATE TABLE borehole_handover_version (
+  id                    BIGINT       NOT NULL AUTO_INCREMENT,
+  borehole_id           BIGINT       NOT NULL COMMENT '所属钻孔',
+  version_no            INT          NOT NULL COMMENT '版本号，从 1 递增',
+  status                VARCHAR(16)  NOT NULL COMMENT '待检查/待整改/已接收/已退回/已失效/已重提',
+  is_active             TINYINT(1)   DEFAULT NULL COMMENT '当前有效版本=1，历史版本=NULL',
+  snapshot_depth        DECIMAL(8,2) DEFAULT NULL COMMENT '发起交接时实际孔深',
+  snapshot_json         JSON         DEFAULT NULL COMMENT '发起时孔深、回次、岩性层、参数、班报快照',
+  issues_json           JSON         NOT NULL COMMENT '完整性检查问题项及整改进度',
+  submit_note           VARCHAR(255) DEFAULT NULL COMMENT '提交说明',
+  submitted_by          VARCHAR(32)  DEFAULT NULL COMMENT '提交人',
+  submitted_at          DATETIME     NOT NULL COMMENT '提交时间',
+  checked_by            VARCHAR(32)  DEFAULT NULL COMMENT '地质检查人',
+  checked_at            DATETIME     DEFAULT NULL COMMENT '检查时间',
+  reject_reason         VARCHAR(255) DEFAULT NULL COMMENT '退回原因',
+  last_inspection_json  JSON         DEFAULT NULL COMMENT '上一轮检查结果',
+  reopen_reason         VARCHAR(255) DEFAULT NULL COMMENT '返开原因',
+  reopened_by           VARCHAR(32)  DEFAULT NULL COMMENT '返开办理人',
+  reopened_at           DATETIME     DEFAULT NULL COMMENT '返开时间',
+  reopen_of_version     INT          DEFAULT NULL COMMENT '由哪个接收版本返开',
+  superseded            TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '原接收版本是否已失效',
+  superseded_at         DATETIME     DEFAULT NULL COMMENT '失效时间',
+  source_version_id     BIGINT       DEFAULT NULL COMMENT '来源版本 ID',
+  lock_version          BIGINT       NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_handover_active (borehole_id, is_active),
+  KEY idx_handover_hole (borehole_id),
+  KEY idx_handover_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

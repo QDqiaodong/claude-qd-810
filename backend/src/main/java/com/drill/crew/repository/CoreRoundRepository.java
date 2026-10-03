@@ -12,6 +12,8 @@ public interface CoreRoundRepository extends JpaRepository<CoreRound, Long> {
 
     boolean existsByBoreholeIdAndRoundNo(Long boreholeId, Integer roundNo);
 
+    boolean existsByBoreholeIdAndRoundNoAndIdNot(Long boreholeId, Integer roundNo, Long id);
+
     /** 低采取率（&lt; 75%）回次，用于编录质量核查 */
     List<CoreRound> findByRecoveryRateLessThanOrderByRecoveryRateAsc(java.math.BigDecimal threshold);
 }

@@ -68,5 +68,15 @@ export const api = {
   report: (id) => unwrap(http.get(`/shift-reports/${id}`)),
   createReport: (body) => unwrap(http.post('/shift-reports', body)),
   updateReport: (id, body) => unwrap(http.put(`/shift-reports/${id}`, body)),
-  deleteReport: (id) => unwrap(http.delete(`/shift-reports/${id}`))
+  deleteReport: (id) => unwrap(http.delete(`/shift-reports/${id}`)),
+
+  // 终孔交接台
+  handovers: () => unwrap(http.get('/handover/versions')),
+  handoverDetail: (boreholeId) => unwrap(http.get(`/handover/boreholes/${boreholeId}`)),
+  startHandover: (boreholeId, body) => unwrap(http.post(`/handover/boreholes/${boreholeId}/start`, body)),
+  resubmitHandover: (id, body) => unwrap(http.post(`/handover/versions/${id}/resubmit`, body)),
+  rejectHandover: (id, body) => unwrap(http.post(`/handover/versions/${id}/reject`, body)),
+  acceptHandover: (id, body) => unwrap(http.post(`/handover/versions/${id}/accept`, body)),
+  saveIssueProgress: (id, body) => unwrap(http.post(`/handover/versions/${id}/issue-progress`, body)),
+  reopenHandover: (id, body) => unwrap(http.post(`/handover/versions/${id}/reopen`, body))
 }

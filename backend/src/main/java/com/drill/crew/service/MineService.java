@@ -32,10 +32,13 @@ public class MineService {
 
     private final MineRepository mineRepository;
     private final BoreholeRepository boreholeRepository;
+    private final HandoverGuard handoverGuard;
 
-    public MineService(MineRepository mineRepository, BoreholeRepository boreholeRepository) {
+    public MineService(MineRepository mineRepository, BoreholeRepository boreholeRepository,
+                       HandoverGuard handoverGuard) {
         this.mineRepository = mineRepository;
         this.boreholeRepository = boreholeRepository;
+        this.handoverGuard = handoverGuard;
     }
 
     @Transactional(readOnly = true)
@@ -128,6 +131,11 @@ public class MineService {
     @Transactional
     public Borehole updateBorehole(Long id, Borehole payload) {
         Borehole hole = getBorehole(id);
+        boolean depthChanging = payload.getActualDepth() != null
+                && payload.getActualDepth().compareTo(hole.getActualDepth()) != 0;
+        if (depthChanging) {
+            handoverGuard.requireWritable(id, "实际孔深");
+        }
         if (payload.getHoleNo() != null && !payload.getHoleNo().equals(hole.getHoleNo())
                 && boreholeRepository.existsByHoleNo(payload.getHoleNo())) {
             throw new BizException("孔号已存在：" + payload.getHoleNo());
@@ -142,6 +150,12 @@ public class MineService {
         Borehole hole = getBorehole(id);
         if ("施工".equals(hole.getStatus())) {
             throw new BizException("钻孔【" + hole.getHoleNo() + "】正在施工，不能删除");
+        }
+        if (handoverGuard.isAccepted(id)) {
+            throw new BizException("钻孔【" + hole.getHoleNo() + "】已完成终孔接收，不能删除");
+        }
+        if (handoverGuard.hasActiveHandover(id)) {
+            throw new BizException("钻孔【" + hole.getHoleNo() + "】存在未结束的终孔交接，不能删除");
         }
         boreholeRepository.delete(hole);
     }

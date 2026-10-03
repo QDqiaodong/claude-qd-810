@@ -34,13 +34,16 @@ public class ShiftReportService {
     private final BoreholeRepository boreholeRepository;
     private final RigRepository rigRepository;
     private final CrewTeamRepository crewTeamRepository;
+    private final HandoverGuard handoverGuard;
 
     public ShiftReportService(ShiftReportRepository reportRepository, BoreholeRepository boreholeRepository,
-                              RigRepository rigRepository, CrewTeamRepository crewTeamRepository) {
+                              RigRepository rigRepository, CrewTeamRepository crewTeamRepository,
+                              HandoverGuard handoverGuard) {
         this.reportRepository = reportRepository;
         this.boreholeRepository = boreholeRepository;
         this.rigRepository = rigRepository;
         this.crewTeamRepository = crewTeamRepository;
+        this.handoverGuard = handoverGuard;
     }
 
     @Transactional(readOnly = true)
@@ -61,6 +64,7 @@ public class ShiftReportService {
 
     @Transactional
     public ShiftReport createReport(ShiftReport report) {
+        handoverGuard.requireWritable(report.getBoreholeId(), "班报");
         validateReport(report);
         report.setId(null);
         report.setCreatedAt(LocalDateTime.now());
@@ -70,6 +74,7 @@ public class ShiftReportService {
     @Transactional
     public ShiftReport updateReport(Long id, ShiftReport payload) {
         ShiftReport report = getReport(id);
+        handoverGuard.requireWritable(report.getBoreholeId(), "班报");
         if (payload.getBoreholeId() != null) {
             report.setBoreholeId(payload.getBoreholeId());
         }
@@ -106,13 +111,16 @@ public class ShiftReportService {
         if (payload.getLeaderSign() != null) {
             report.setLeaderSign(payload.getLeaderSign());
         }
+        handoverGuard.requireWritable(report.getBoreholeId(), "班报");
         validateReport(report);
         return reportRepository.save(report);
     }
 
     @Transactional
     public void deleteReport(Long id) {
-        reportRepository.delete(getReport(id));
+        ShiftReport report = getReport(id);
+        handoverGuard.requireWritable(report.getBoreholeId(), "班报");
+        reportRepository.delete(report);
     }
 
     /** 台班利用率：纯钻工时 / 班次时长 */
@@ -146,9 +154,6 @@ public class ShiftReportService {
                     .orElseThrow(() -> new BizException("班组不存在：id=" + report.getCrewId()));
             if (!crew.getRigId().equals(report.getRigId())) {
                 throw new BizException("班组【" + crew.getLeader() + "】不属于所选钻机，班报钻机与班组必须一致");
-            }
-            if (report.getLeaderSign() == null || report.getLeaderSign().trim().isEmpty()) {
-                report.setLeaderSign(crew.getLeader());
             }
         }
         if (report.getFootage() == null || report.getFootage().compareTo(BigDecimal.ZERO) < 0) {

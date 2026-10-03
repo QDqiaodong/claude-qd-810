@@ -1,6 +1,14 @@
 <template>
   <div class="dc-page">
+    <div v-if="fromHandover" class="return-bar">
+      <span>正在核查钻孔：<b>{{ currentHole?.holeNo || boreholeId }}</b> 参数，处理后返回交接台。</span>
+      <el-button size="small" type="primary" @click="backToHandover">返回交接台</el-button>
+    </div>
     <div class="dc-toolbar">
+      <span class="dc-label">钻孔</span>
+      <el-select v-model="boreholeId" size="small" style="width: 190px" clearable @change="loadSeriesList">
+        <el-option v-for="h in holes" :key="h.id" :label="h.holeNo" :value="h.id" />
+      </el-select>
       <span class="dc-label">钻进时序</span>
       <el-select v-model="seriesId" size="small" style="width: 300px" @change="loadAnalysis">
         <el-option
@@ -13,6 +21,8 @@
       <span class="dc-label">孔号 {{ data.holeNo || '—' }}</span>
       <span class="dc-label">采样 {{ data.pointCount || 0 }} 点</span>
       <span style="color: #c05621; font-size: 12px">异常 {{ data.abnormalCount || 0 }} 点</span>
+      <el-button v-if="data.seriesId" size="small" type="danger" :disabled="readonly" @click="removeSeries">删除异常时序后整改</el-button>
+      <el-tag v-if="lockText" type="danger">{{ lockText }}</el-tag>
       <div style="width: 240px">
         <el-slider v-model="rangeArr" range :min="0" :max="Math.max(pointCount - 1, 0)" :marks="{ }" size="small" />
       </div>
@@ -97,14 +107,27 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { setDetail } from '../detail'
+import { navigation, returnToHandover } from '../navigation'
 
+const holes = ref([])
+const boreholeId = ref(null)
+const handoverInfo = ref(null)
 const seriesList = ref([])
 const seriesId = ref(null)
 const data = ref({})
 const rangeArr = ref([0, 0])
 
+const currentHole = computed(() => holes.value.find((h) => h.id === boreholeId.value) || null)
+const fromHandover = computed(() => navigation.returnTab === 'handover' && !!navigation.handoverBoreholeId)
+const readonly = computed(() => handoverInfo.value?.status === '待检查' || handoverInfo.value?.status === '已接收')
+const lockText = computed(() => {
+  if (handoverInfo.value?.status === '待检查') return '待检查快照已锁定'
+  if (handoverInfo.value?.status === '已接收') return '已接收资料已锁定，需返开'
+  return ''
+})
 const pointCount = computed(() => (data.value.points || []).length)
 const visiblePoints = computed(() => (data.value.points || []).slice(rangeArr.value[0], rangeArr.value[1] + 1))
 const abnormalPoints = computed(() => visiblePoints.value.filter((p) => p.abnormal))
@@ -185,11 +208,51 @@ async function loadAnalysis() {
   rangeArr.value = [0, Math.max(n - 1, 0)]
 }
 
-onMounted(async () => {
-  seriesList.value = await api.series()
-  if (seriesList.value.length) {
-    seriesId.value = seriesList.value[0].id
-    await loadAnalysis()
+async function loadSeriesList() {
+  seriesList.value = await api.series(boreholeId.value || undefined)
+  const targetId = navigation.query?.seriesId
+  seriesId.value = targetId && seriesList.value.some((s) => s.id === targetId)
+    ? targetId
+    : seriesList.value[0]?.id || null
+  if (seriesId.value) await loadAnalysis()
+  else data.value = {}
+}
+
+async function loadHandoverInfo() {
+  if (!boreholeId.value) {
+    handoverInfo.value = null
+    return
   }
+  try {
+    const hd = await api.handoverDetail(boreholeId.value)
+    handoverInfo.value = hd.active
+  } catch (e) {
+    handoverInfo.value = null
+  }
+}
+
+async function removeSeries() {
+  await api.deleteSeries(seriesId.value)
+  ElMessage.success('参数时序已删除，整改后请重新提交交接')
+  await loadSeriesList()
+}
+
+function backToHandover() {
+  returnToHandover()
+}
+
+watch(boreholeId, async () => {
+  await loadSeriesList()
+  await loadHandoverInfo()
+})
+
+onMounted(async () => {
+  holes.value = await api.boreholes()
+  if (navigation.handoverBoreholeId) boreholeId.value = navigation.handoverBoreholeId
+  else if (navigation.boreholeId) boreholeId.value = navigation.boreholeId
+  else if ((navigation.query || {}).boreholeId) boreholeId.value = navigation.query.boreholeId
+  await loadSeriesList()
+  await loadHandoverInfo()
+  navigation.query = {}
 })
 </script>

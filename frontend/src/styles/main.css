@@ -217,7 +217,7 @@ body {
 .dc-stat-num { font-size: 11px; color: #8a7761; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
 /* ---------- 岩芯柱 ---------- */
-.dc-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.dc-legend { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .dc-legend-item {
   display: flex;
@@ -283,6 +283,55 @@ body {
 .dc-eff-fill { height: 100%; background: linear-gradient(90deg, #8d6e63, #3e2723); }
 .dc-eff-num { width: 130px; flex: none; text-align: right; font-variant-numeric: tabular-nums; color: #6d5b48; }
 
+/* ---------- 终孔交接 ---------- */
+.handover-row { display: block; }
+.handover-meta { font-size: 11px; color: #8a7761; margin-top: 3px; }
+.handover-bad { font-size: 11px; color: #c05621; font-weight: 700; margin-top: 2px; }
+.handover-ok { font-size: 11px; color: #507a3f; font-weight: 700; margin-top: 2px; }
+.handover-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px 12px;
+  font-size: 12px;
+}
+.handover-grid span {
+  background: #fffdf7;
+  border: 1px solid var(--dc-line);
+  border-radius: 3px;
+  padding: 6px 8px;
+}
+.handover-box {
+  margin-top: 10px;
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.handover-box.warning { background: #fff3ec; border: 1px solid #e2b59a; }
+.handover-box.info { background: #eef5ff; border: 1px solid #a9c5e8; }
+.snapshot-section { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow: auto; }
+.history-title { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--dc-brown-2); }
+.invalid-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 2px;
+  background: #c05621;
+  color: #fff;
+  font-size: 11px;
+}
+.return-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  background: #fff8df;
+  border: 1px solid #dfc77d;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
 /* ---------- 班报（打印） ---------- */
 .dc-sheet {
   background: #fff;
@@ -312,7 +361,7 @@ body {
 
 @media print {
   body { background: #fff; }
-  .dc-topbar, .dc-detail, .dc-toolbar, .dc-form-panel, .dc-noprint { display: none !important; }
+  .dc-topbar, .dc-detail, .dc-toolbar, .dc-form-panel, .dc-noprint, .return-bar { display: none !important; }
   .dc-main { overflow: visible; padding: 0; }
   .dc-sheet { border: none; max-width: none; }
 }

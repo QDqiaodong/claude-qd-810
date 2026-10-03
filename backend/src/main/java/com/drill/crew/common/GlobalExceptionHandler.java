@@ -3,9 +3,11 @@ package com.drill.crew.common;
 import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -40,6 +42,24 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleNotReadable(HttpMessageNotReadableException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("请求体格式有误，请检查 JSON 字段类型"));
+    }
+
+    /**
+     * 乐观锁冲突：后提交者必须刷新看到对方已改变的状态和数据后重新检查。
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOptimisticLock(ObjectOptimisticLockingFailureException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail("交接数据已被另一名负责人推进，请刷新后重新检查，不能生成重复版本"));
+    }
+
+    /**
+     * 行锁竞争：两名负责人同时发起或推进同一钻孔。
+     */
+    @ExceptionHandler(CannotAcquireLockException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePessimisticLock(CannotAcquireLockException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail("该钻孔交接正在由另一名负责人处理，请刷新后重试"));
     }
 
     /**

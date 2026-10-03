@@ -47,10 +47,15 @@ public class DrillParamService {
 
     private final DrillParamSeriesRepository seriesRepository;
     private final BoreholeRepository boreholeRepository;
+    private final DrillParamAnalyzer analyzer;
+    private final HandoverGuard handoverGuard;
 
-    public DrillParamService(DrillParamSeriesRepository seriesRepository, BoreholeRepository boreholeRepository) {
+    public DrillParamService(DrillParamSeriesRepository seriesRepository, BoreholeRepository boreholeRepository,
+                             DrillParamAnalyzer analyzer, HandoverGuard handoverGuard) {
         this.seriesRepository = seriesRepository;
         this.boreholeRepository = boreholeRepository;
+        this.analyzer = analyzer;
+        this.handoverGuard = handoverGuard;
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +74,7 @@ public class DrillParamService {
     @Transactional
     public DrillParamSeries createSeries(DrillParamSeries series) {
         validateSeries(series);
+        handoverGuard.requireWritable(series.getBoreholeId(), "钻进参数记录");
         series.setId(null);
         series.setCreatedAt(LocalDateTime.now());
         return seriesRepository.save(series);
@@ -76,7 +82,9 @@ public class DrillParamService {
 
     @Transactional
     public void deleteSeries(Long id) {
-        seriesRepository.delete(getSeries(id));
+        DrillParamSeries series = getSeries(id);
+        handoverGuard.requireWritable(series.getBoreholeId(), "钻进参数记录");
+        seriesRepository.delete(series);
     }
 
     /**
@@ -86,38 +94,7 @@ public class DrillParamService {
     public Map<String, Object> analyze(Long id) {
         DrillParamSeries series = getSeries(id);
         Borehole hole = boreholeRepository.findById(series.getBoreholeId()).orElse(null);
-        List<ParamPoint> points = series.getPoints() == null ? List.of() : series.getPoints();
-
-        List<ParamPointView> views = new ArrayList<>();
-        int abnormalCount = 0;
-        for (int i = 0; i < points.size(); i++) {
-            ParamPointView v = ParamPointView.of(i, points.get(i));
-            List<String> items = new ArrayList<>();
-            checkRange("pressure", v.getPressure(), items);
-            checkRange("rotation", v.getRotation(), items);
-            checkRange("pump", v.getPump(), items);
-            checkRange("mudDensity", v.getMudDensity(), items);
-            v.setAbnormal(!items.isEmpty());
-            v.setAbnormalItems(items);
-            if (v.isAbnormal()) {
-                abnormalCount++;
-            }
-            views.add(v);
-        }
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("seriesId", series.getId());
-        result.put("boreholeId", series.getBoreholeId());
-        result.put("holeNo", hole == null ? null : hole.getHoleNo());
-        result.put("mineId", hole == null ? null : hole.getMineId());
-        result.put("recordDate", series.getRecordDate());
-        result.put("shiftType", series.getShiftType());
-        result.put("operator", series.getOperator());
-        result.put("pointCount", points.size());
-        result.put("abnormalCount", abnormalCount);
-        result.put("ranges", NORMAL_RANGE);
-        result.put("points", views);
-        return result;
+        return analyzer.analyze(series, hole);
     }
 
     private void checkRange(String key, BigDecimal value, List<String> items) {

@@ -39,12 +39,14 @@ public class CoreLogService {
     private final CoreRoundRepository roundRepository;
     private final LithoLayerRepository layerRepository;
     private final BoreholeRepository boreholeRepository;
+    private final HandoverGuard handoverGuard;
 
     public CoreLogService(CoreRoundRepository roundRepository, LithoLayerRepository layerRepository,
-                          BoreholeRepository boreholeRepository) {
+                          BoreholeRepository boreholeRepository, HandoverGuard handoverGuard) {
         this.roundRepository = roundRepository;
         this.layerRepository = layerRepository;
         this.boreholeRepository = boreholeRepository;
+        this.handoverGuard = handoverGuard;
     }
 
     // ---------------- 回次 ----------------
@@ -65,6 +67,7 @@ public class CoreLogService {
     @Transactional
     public CoreRound createRound(CoreRound round) {
         validateRound(round, true);
+        handoverGuard.requireWritable(round.getBoreholeId(), "回次");
         round.setId(null);
         return roundRepository.save(round);
     }
@@ -72,6 +75,7 @@ public class CoreLogService {
     @Transactional
     public CoreRound updateRound(Long id, CoreRound payload) {
         CoreRound round = getRound(id);
+        handoverGuard.requireWritable(round.getBoreholeId(), "回次");
         if (payload.getFromDepth() != null) {
             round.setFromDepth(payload.getFromDepth());
         }
@@ -106,6 +110,7 @@ public class CoreLogService {
     @Transactional
     public void deleteRound(Long id) {
         CoreRound round = getRound(id);
+        handoverGuard.requireWritable(round.getBoreholeId(), "回次");
         if (!layerRepository.findByRoundIdOrderByLayerSeqAsc(id).isEmpty()) {
             throw new BizException("该回次下已有岩性分层，请先删除分层");
         }
@@ -133,6 +138,7 @@ public class CoreLogService {
     @Transactional
     public LithoLayer createLayer(LithoLayer layer) {
         validateLayer(layer, true);
+        handoverGuard.requireWritable(layer.getBoreholeId(), "岩性分层");
         layer.setId(null);
         return layerRepository.save(layer);
     }
@@ -140,6 +146,7 @@ public class CoreLogService {
     @Transactional
     public LithoLayer updateLayer(Long id, LithoLayer payload) {
         LithoLayer layer = getLayer(id);
+        handoverGuard.requireWritable(layer.getBoreholeId(), "岩性分层");
         if (payload.getLayerSeq() != null) {
             layer.setLayerSeq(payload.getLayerSeq());
         }
@@ -187,6 +194,7 @@ public class CoreLogService {
             cleaned.put(k.trim(), v);
         });
         LithoLayer layer = getLayer(id);
+        handoverGuard.requireWritable(layer.getBoreholeId(), "岩性分层");
         layer.setAttrs(cleaned);
         return layerRepository.save(layer);
     }
@@ -194,6 +202,7 @@ public class CoreLogService {
     @Transactional
     public void deleteLayer(Long id) {
         LithoLayer layer = getLayer(id);
+        handoverGuard.requireWritable(layer.getBoreholeId(), "岩性分层");
         layerRepository.delete(layer);
     }
 
@@ -236,7 +245,12 @@ public class CoreLogService {
         if (round.getRoundNo() == null || round.getRoundNo() <= 0) {
             throw new BizException("回次号必须为正整数");
         }
-        if (isCreate && roundRepository.existsByBoreholeIdAndRoundNo(round.getBoreholeId(), round.getRoundNo())) {
+        if (isCreate) {
+            if (roundRepository.existsByBoreholeIdAndRoundNo(round.getBoreholeId(), round.getRoundNo())) {
+                throw new BizException("孔【" + hole.getHoleNo() + "】的第 " + round.getRoundNo() + " 回次已存在");
+            }
+        } else if (roundRepository.existsByBoreholeIdAndRoundNoAndIdNot(
+                round.getBoreholeId(), round.getRoundNo(), round.getId())) {
             throw new BizException("孔【" + hole.getHoleNo() + "】的第 " + round.getRoundNo() + " 回次已存在");
         }
         if (round.getFromDepth() == null || round.getToDepth() == null) {
@@ -252,6 +266,7 @@ public class CoreLogService {
         if (round.getToDepth().compareTo(hole.getActualDepth()) > 0) {
             throw new BizException("回次终止深度 " + round.getToDepth() + " m 超过当前孔深 " + hole.getActualDepth() + " m");
         }
+        validateRoundChain(round);
         BigDecimal interval = round.getToDepth().subtract(round.getFromDepth());
         if (round.getCoreLength() == null || round.getCoreLength().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BizException("岩芯长度必须大于 0");
@@ -280,6 +295,33 @@ public class CoreLogService {
             }
             if (!LOW_RECOVERY_REASONS.contains(round.getLowRecoveryReason().trim())) {
                 throw new BizException("低采取率原因只能为：岩芯破碎 / 漏失 / 孔径失控");
+            }
+        }
+    }
+
+    /**
+     * 回次号必须连续；深度按回次顺序首尾相接，不能有空洞或重叠。末回次允许尚未打到当前孔深（施工中）。
+     */
+    private void validateRoundChain(CoreRound current) {
+        List<CoreRound> all = new ArrayList<>(roundRepository.findByBoreholeIdOrderByRoundNoAsc(current.getBoreholeId()));
+        all.removeIf(r -> r.getId() != null && r.getId().equals(current.getId()));
+        all.add(current);
+        all.sort(Comparator.comparing(CoreRound::getRoundNo));
+        for (int i = 0; i < all.size(); i++) {
+            CoreRound r = all.get(i);
+            if (r.getRoundNo() != i + 1) {
+                throw new BizException("回次号必须连续：第 " + (i + 1) + " 个位置不能填写第 " + r.getRoundNo() + " 回次");
+            }
+            if (i == 0) {
+                if (r.getFromDepth().compareTo(BigDecimal.ZERO) != 0) {
+                    throw new BizException("首回次必须从 0.00 m 开始");
+                }
+            } else {
+                CoreRound prev = all.get(i - 1);
+                if (r.getFromDepth().compareTo(prev.getToDepth()) != 0) {
+                    throw new BizException("第 " + prev.getRoundNo() + " 回次止深必须与第 " + r.getRoundNo()
+                            + " 回次起深一致，不能重叠或留空");
+                }
             }
         }
     }

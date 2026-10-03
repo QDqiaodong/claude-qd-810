@@ -1,11 +1,22 @@
 <template>
   <div class="dc-page">
+    <div v-if="fromHandover" class="return-bar">
+      <span>正在整改钻孔：<b>{{ holeNo(selected?.boreholeId || boreholeId) }}</b> 班报，补签后返回交接台重新提交。</span>
+      <el-button size="small" type="primary" @click="backToHandover">返回交接台</el-button>
+    </div>
     <div class="dc-toolbar noprint">
+      <span class="dc-label">钻孔</span>
+      <el-select v-model="boreholeId" size="small" style="width: 170px" clearable @change="loadReports">
+        <el-option v-for="h in holes" :key="h.id" :label="h.holeNo" :value="h.id" />
+      </el-select>
       <span class="dc-label">钻机</span>
       <el-select v-model="filterRigId" size="small" style="width: 150px" clearable @change="loadReports">
         <el-option v-for="r in rigs" :key="r.id" :label="r.code" :value="r.id" />
       </el-select>
-      <el-button size="small" type="primary" @click="dialog = true">填写班报</el-button>
+      <el-button size="small" type="primary" :disabled="readonly" @click="openCreate">填写班报</el-button>
+      <el-button v-if="selected" size="small" :disabled="readonly" @click="openEdit">编辑选中班报</el-button>
+      <el-button v-if="selected" size="small" type="danger" :disabled="readonly" @click="removeSelected">删除</el-button>
+      <el-tag v-if="lockText" type="danger">{{ lockText }}</el-tag>
       <el-button size="small" @click="printSheet">打印 / 预览</el-button>
       <span class="dc-label">共 {{ reports.length }} 张</span>
     </div>
@@ -99,7 +110,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="dialog" title="填写班报" width="560px">
+    <el-dialog v-model="dialog" :title="form.id ? '编辑班报' : '填写班报'" width="560px">
       <el-form :model="form" label-width="104px" size="small">
         <el-form-item label="施工孔号">
           <el-select v-model="form.boreholeId" style="width: 100%">
@@ -138,10 +149,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { setDetail } from '../detail'
+import { navigation, returnToHandover } from '../navigation'
 
 const rigs = ref([])
 const holes = ref([])
@@ -150,11 +162,20 @@ const mines = ref([])
 const reports = ref([])
 const selectedId = ref(null)
 const filterRigId = ref(null)
+const boreholeId = ref(null)
+const handoverInfo = ref(null)
 const dialog = ref(false)
 const form = ref({})
 
 const selected = computed(() => reports.value.find((r) => r.id === selectedId.value) || null)
 const materials = computed(() => (selected.value && selected.value.materials) || [])
+const fromHandover = computed(() => navigation.returnTab === 'handover' && !!navigation.handoverBoreholeId)
+const readonly = computed(() => handoverInfo.value?.status === '待检查' || handoverInfo.value?.status === '已接收')
+const lockText = computed(() => {
+  if (handoverInfo.value?.status === '待检查') return '待检查快照已锁定'
+  if (handoverInfo.value?.status === '已接收') return '已接收资料已锁定，需返开'
+  return ''
+})
 
 function num(v) {
   return v == null ? '—' : Number(v)
@@ -224,27 +245,91 @@ function printSheet() {
   window.print()
 }
 
+function openCreate() {
+  form.value = {
+    boreholeId: boreholeId.value || holes.value[0]?.id,
+    rigId: rigs.value[0]?.id,
+    crewId: null,
+    reportDate: new Date().toISOString().slice(0, 10),
+    shiftType: '早',
+    footage: 0,
+    pureHours: 0,
+    auxHours: 0,
+    accidentNote: '',
+    handoverNote: '',
+    leaderSign: ''
+  }
+  dialog.value = true
+}
+
+function openEdit() {
+  if (!selected.value) return
+  form.value = { ...selected.value }
+  dialog.value = true
+}
+
+async function removeSelected() {
+  await api.deleteReport(selected.value.id)
+  ElMessage.success('班报已删除')
+  selectedId.value = null
+  await loadReports()
+}
+
 async function submitCreate() {
   if (!form.value.boreholeId || !form.value.rigId) {
     ElMessage.warning('请选择施工孔号与钻机')
     return
   }
-  await api.createReport({ ...form.value, materials: [] })
-  ElMessage.success('班报已保存')
+  const payload = { ...form.value, materials: form.value.materials || [] }
+  if (payload.id) await api.updateReport(payload.id, payload)
+  else await api.createReport(payload)
+  ElMessage.success(payload.id ? '班报已更新' : '班报已保存')
   dialog.value = false
   await loadReports()
 }
 
 async function loadReports() {
-  reports.value = await api.reports(filterRigId.value ? { rigId: filterRigId.value } : {})
-  if (reports.value.length && !selectedId.value) selectReport(reports.value[0])
+  const params = boreholeId.value
+    ? { boreholeId: boreholeId.value }
+    : filterRigId.value
+      ? { rigId: filterRigId.value }
+      : {}
+  reports.value = await api.reports(params)
+  const targetId = navigation.query?.reportId
+  if (targetId && reports.value.some((r) => r.id === targetId)) {
+    selectedId.value = targetId
+    selectReport(reports.value.find((r) => r.id === targetId))
+  }
+  else if (reports.value.length && !selectedId.value) selectReport(reports.value[0])
+  if (boreholeId.value) {
+    try {
+      handoverInfo.value = (await api.handoverDetail(boreholeId.value)).active
+    } catch (e) {
+      handoverInfo.value = null
+    }
+  } else {
+    handoverInfo.value = null
+  }
+  navigation.query = {}
 }
+
+function backToHandover() {
+  returnToHandover()
+}
+
+watch(boreholeId, () => {
+  selectedId.value = null
+  loadReports()
+})
 
 onMounted(async () => {
   rigs.value = await api.rigs()
   holes.value = await api.boreholes()
   crews.value = await api.crews()
   mines.value = await api.mines()
+  if (navigation.handoverBoreholeId) boreholeId.value = navigation.handoverBoreholeId
+  else if (navigation.boreholeId) boreholeId.value = navigation.boreholeId
+  else if ((navigation.query || {}).boreholeId) boreholeId.value = navigation.query.boreholeId
   await loadReports()
 })
 </script>
