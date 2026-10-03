@@ -39,12 +39,14 @@ public class CoreLogService {
     private final CoreRoundRepository roundRepository;
     private final LithoLayerRepository layerRepository;
     private final BoreholeRepository boreholeRepository;
+    private final HandoverLockService handoverLock;
 
     public CoreLogService(CoreRoundRepository roundRepository, LithoLayerRepository layerRepository,
-                          BoreholeRepository boreholeRepository) {
+                          BoreholeRepository boreholeRepository, HandoverLockService handoverLock) {
         this.roundRepository = roundRepository;
         this.layerRepository = layerRepository;
         this.boreholeRepository = boreholeRepository;
+        this.handoverLock = handoverLock;
     }
 
     // ---------------- 回次 ----------------
@@ -106,6 +108,7 @@ public class CoreLogService {
     @Transactional
     public void deleteRound(Long id) {
         CoreRound round = getRound(id);
+        handoverLock.requireWritable(round.getBoreholeId(), "删除回次");
         if (!layerRepository.findByRoundIdOrderByLayerSeqAsc(id).isEmpty()) {
             throw new BizException("该回次下已有岩性分层，请先删除分层");
         }
@@ -187,6 +190,7 @@ public class CoreLogService {
             cleaned.put(k.trim(), v);
         });
         LithoLayer layer = getLayer(id);
+        handoverLock.requireWritable(layer.getBoreholeId(), "修改岩性层属性包");
         layer.setAttrs(cleaned);
         return layerRepository.save(layer);
     }
@@ -194,6 +198,7 @@ public class CoreLogService {
     @Transactional
     public void deleteLayer(Long id) {
         LithoLayer layer = getLayer(id);
+        handoverLock.requireWritable(layer.getBoreholeId(), "删除岩性层");
         layerRepository.delete(layer);
     }
 
@@ -233,6 +238,7 @@ public class CoreLogService {
         if ("封孔".equals(hole.getStatus())) {
             throw new BizException("钻孔【" + hole.getHoleNo() + "】已封孔，不允许再录入回次");
         }
+        handoverLock.requireWritable(round.getBoreholeId(), "录入或修改回次");
         if (round.getRoundNo() == null || round.getRoundNo() <= 0) {
             throw new BizException("回次号必须为正整数");
         }
@@ -295,6 +301,7 @@ public class CoreLogService {
         if (hole != null && "封孔".equals(hole.getStatus())) {
             throw new BizException("钻孔【" + hole.getHoleNo() + "】已封孔，不允许再录入岩性分层");
         }
+        handoverLock.requireWritable(round.getBoreholeId(), "录入或修改岩性层");
         MineService.requireText(layer.getLithology(), "岩性名称不能为空");
         if (layer.getLayerSeq() == null || layer.getLayerSeq() <= 0) {
             throw new BizException("层序必须为正整数");

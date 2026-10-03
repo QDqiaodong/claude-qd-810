@@ -13,7 +13,7 @@
           :key="tab.key"
           class="dc-tab"
           :class="{ active: tab.key === current }"
-          @click="current = tab.key"
+          @click="switchTab(tab.key)"
         >
           <span class="dc-tab-idx">{{ String(index + 1).padStart(2, '0') }}</span>{{ tab.title }}
         </div>
@@ -22,11 +22,22 @@
 
     <div class="dc-body">
       <main class="dc-main">
+        <!-- 交接台从问题项跳到录入页时显示的返回条：返回后保留钻孔与检查进度 -->
+        <div v-if="handoverNav.fromHandover && current !== 'handover'" class="dc-return-bar">
+          <el-button size="small" type="primary" plain @click="backToHandover">
+            ← 返回交接台（{{ handoverNav.targetLabel || '继续整改' }}）
+          </el-button>
+          <span class="dc-return-hint">正在按交接问题整改，完成后返回交接台保存进度 / 重新提交</span>
+        </div>
+
         <HolesView v-if="current === 'holes'" />
         <CoreLogView v-else-if="current === 'core'" />
         <ParamView v-else-if="current === 'param'" />
         <RigView v-else-if="current === 'rig'" />
-        <ShiftReportView v-else />
+        <ShiftReportView v-else-if="current === 'report'" />
+        <KeepAlive>
+          <HandoverView v-if="current === 'handover'" ref="handoverRef" />
+        </KeepAlive>
       </main>
 
       <aside class="dc-detail">
@@ -68,24 +79,28 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { detail } from './detail'
+import { handoverNav, exitToHandover } from './handover-nav'
 import HolesView from './views/HolesView.vue'
 import CoreLogView from './views/CoreLogView.vue'
 import ParamView from './views/ParamView.vue'
 import RigView from './views/RigView.vue'
 import ShiftReportView from './views/ShiftReportView.vue'
+import HandoverView from './views/HandoverView.vue'
 
 const tabs = [
   { key: 'holes', title: '孔位分布' },
   { key: 'core', title: '岩芯编录' },
   { key: 'param', title: '钻进参数' },
   { key: 'rig', title: '钻机班组' },
-  { key: 'report', title: '班报表' }
+  { key: 'report', title: '班报表' },
+  { key: 'handover', title: '终孔交接' }
 ]
 
 const current = ref('holes')
+const handoverRef = ref(null)
 const todayText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 
 const jsonText = ref('')
@@ -120,4 +135,25 @@ async function saveJson() {
     /* 接口层已提示 */
   }
 }
+
+function switchTab(key) {
+  current.value = key
+}
+
+/** 交接台问题项发起的跨页导航（事件由 HandoverView 派发） */
+function onNavigate(e) {
+  const tab = e?.detail?.tab
+  if (tab) current.value = tab
+}
+
+/** 从录入页返回交接台：恢复【当前钻孔】与【检查进度】 */
+async function backToHandover() {
+  const ctx = exitToHandover()
+  current.value = 'handover'
+  await handoverRef.value?.restoreContext(ctx)
+}
+
+onMounted(() => {
+  window.addEventListener('dc:navigate', onNavigate)
+})
 </script>

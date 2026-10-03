@@ -1,11 +1,20 @@
 <template>
   <div class="dc-page">
+    <el-alert
+      v-if="lockInfo"
+      class="dc-lock-alert"
+      type="error"
+      :closable="false"
+      show-icon
+      :title="`钻孔 ${lockInfo.holeNo} 的终孔交接已接收（v${lockInfo.versionNo}），班报已冻结，不能新增、修改或删除；确需补录请由负责人返开。`"
+    />
+
     <div class="dc-toolbar noprint">
       <span class="dc-label">钻机</span>
       <el-select v-model="filterRigId" size="small" style="width: 150px" clearable @change="loadReports">
         <el-option v-for="r in rigs" :key="r.id" :label="r.code" :value="r.id" />
       </el-select>
-      <el-button size="small" type="primary" @click="dialog = true">填写班报</el-button>
+      <el-button size="small" type="primary" :disabled="anyLocked" @click="dialog = true">填写班报</el-button>
       <el-button size="small" @click="printSheet">打印 / 预览</el-button>
       <span class="dc-label">共 {{ reports.length }} 张</span>
     </div>
@@ -17,7 +26,7 @@
           v-for="r in reports"
           :key="r.id"
           class="dc-round-row"
-          :class="{ on: r.id === selectedId }"
+          :class="{ on: r.id === selectedId, 'nav-hit': handoverNav.targetId === r.id }"
           @click="selectReport(r)"
         >
           <span style="width: 96px; font-weight: 700">{{ r.reportDate }}</span>
@@ -138,10 +147,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { setDetail } from '../detail'
+import { handoverNav } from '../handover-nav'
 
 const rigs = ref([])
 const holes = ref([])
@@ -153,8 +163,25 @@ const filterRigId = ref(null)
 const dialog = ref(false)
 const form = ref({})
 
+/** 各钻孔生效交接（已接收则班报冻结） */
+const activeMap = ref({})
+
 const selected = computed(() => reports.value.find((r) => r.id === selectedId.value) || null)
 const materials = computed(() => (selected.value && selected.value.materials) || [])
+
+/** 当前选中班报所在孔已接收冻结 */
+const lockInfo = computed(() => {
+  const r = selected.value
+  if (!r) return null
+  const h = activeMap.value[r.boreholeId]
+  if (h && h.status === 'ACCEPTED') {
+    return { holeNo: holeNo(r.boreholeId), versionNo: h.versionNo }
+  }
+  return null
+})
+
+/** 列表中只要有已接收孔，就禁用新增入口（新增表单无法挂到冻结孔之外的判断在后端硬拦） */
+const anyLocked = computed(() => Object.values(activeMap.value).some((h) => h.status === 'ACCEPTED'))
 
 function num(v) {
   return v == null ? '—' : Number(v)
@@ -238,13 +265,41 @@ async function submitCreate() {
 async function loadReports() {
   reports.value = await api.reports(filterRigId.value ? { rigId: filterRigId.value } : {})
   if (reports.value.length && !selectedId.value) selectReport(reports.value[0])
+  locateNavTarget()
 }
+
+/** 从交接台「班报缺签字」问题项跳回：选中对应班报 */
+function locateNavTarget() {
+  if (!handoverNav.fromHandover || handoverNav.target !== 'report') return
+  const target = reports.value.find((r) => r.id === handoverNav.targetId)
+  if (target) {
+    selectedId.value = target.id
+    selectReport(target)
+  }
+}
+
+watch(
+  () => handoverNav.nonce,
+  async () => {
+    if (handoverNav.target !== 'report') return
+    // 缺签字问题可能挂在当前钻机过滤之外，先清空过滤拉全量
+    filterRigId.value = null
+    await loadReports()
+    locateNavTarget()
+  }
+)
 
 onMounted(async () => {
   rigs.value = await api.rigs()
   holes.value = await api.boreholes()
   crews.value = await api.crews()
   mines.value = await api.mines()
+  try {
+    const all = await api.handovers()
+    const map = {}
+    all.forEach((h) => { map[h.boreholeId] = h })
+    activeMap.value = map
+  } catch (e) { /* 忽略 */ }
   await loadReports()
 })
 </script>

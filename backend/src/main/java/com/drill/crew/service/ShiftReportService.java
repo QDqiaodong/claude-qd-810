@@ -34,13 +34,16 @@ public class ShiftReportService {
     private final BoreholeRepository boreholeRepository;
     private final RigRepository rigRepository;
     private final CrewTeamRepository crewTeamRepository;
+    private final HandoverLockService handoverLock;
 
     public ShiftReportService(ShiftReportRepository reportRepository, BoreholeRepository boreholeRepository,
-                              RigRepository rigRepository, CrewTeamRepository crewTeamRepository) {
+                              RigRepository rigRepository, CrewTeamRepository crewTeamRepository,
+                              HandoverLockService handoverLock) {
         this.reportRepository = reportRepository;
         this.boreholeRepository = boreholeRepository;
         this.rigRepository = rigRepository;
         this.crewTeamRepository = crewTeamRepository;
+        this.handoverLock = handoverLock;
     }
 
     @Transactional(readOnly = true)
@@ -62,6 +65,7 @@ public class ShiftReportService {
     @Transactional
     public ShiftReport createReport(ShiftReport report) {
         validateReport(report);
+        handoverLock.requireWritable(report.getBoreholeId(), "新增班报");
         report.setId(null);
         report.setCreatedAt(LocalDateTime.now());
         return reportRepository.save(report);
@@ -70,6 +74,10 @@ public class ShiftReportService {
     @Transactional
     public ShiftReport updateReport(Long id, ShiftReport payload) {
         ShiftReport report = getReport(id);
+        handoverLock.requireWritable(report.getBoreholeId(), "修改班报");
+        if (payload.getBoreholeId() != null && !payload.getBoreholeId().equals(report.getBoreholeId())) {
+            handoverLock.requireWritable(payload.getBoreholeId(), "把班报改挂到该钻孔");
+        }
         if (payload.getBoreholeId() != null) {
             report.setBoreholeId(payload.getBoreholeId());
         }
@@ -112,7 +120,9 @@ public class ShiftReportService {
 
     @Transactional
     public void deleteReport(Long id) {
-        reportRepository.delete(getReport(id));
+        ShiftReport report = getReport(id);
+        handoverLock.requireWritable(report.getBoreholeId(), "删除班报");
+        reportRepository.delete(report);
     }
 
     /** 台班利用率：纯钻工时 / 班次时长 */

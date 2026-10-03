@@ -99,6 +99,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { setDetail } from '../detail'
+import { handoverNav } from '../handover-nav'
 
 const seriesList = ref([])
 const seriesId = ref(null)
@@ -184,6 +185,23 @@ async function loadAnalysis() {
   const n = (data.value.points || []).length
   rangeArr.value = [0, Math.max(n - 1, 0)]
 }
+
+/** 从交接台「参数异常」问题项跳回：定位到对应时序并框选首个异常点 */
+watch(
+  () => handoverNav.nonce,
+  async () => {
+    if (handoverNav.target !== 'param') return
+    const targetId = handoverNav.targetId
+    if (targetId == null) return
+    if (!seriesList.value.find((s) => s.id === targetId)) {
+      seriesList.value = await api.series()
+    }
+    seriesId.value = targetId
+    await loadAnalysis()
+    const idx = (data.value.points || []).findIndex((p) => p.abnormal)
+    if (idx >= 0) rangeArr.value = [Math.max(0, idx - 2), Math.min(pointCount.value - 1, idx + 2)]
+  }
+)
 
 onMounted(async () => {
   seriesList.value = await api.series()

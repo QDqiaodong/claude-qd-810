@@ -91,6 +91,14 @@
         <span style="width: 130px">实钻 {{ num(h.actualDepth) }} m</span>
         <span style="width: 74px" :style="{ color: statusColor(h.status) }">{{ h.status }}</span>
         <span style="color: #8a7761">{{ h.spudDate }} → {{ h.finalDate || '—' }}</span>
+        <el-button
+          v-if="h.status === '终孔'"
+          class="dc-hole-handover-btn"
+          size="small"
+          type="warning"
+          plain
+          @click.stop="gotoHandover(h)"
+        >终孔交接</el-button>
       </div>
     </div>
 
@@ -125,6 +133,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { setDetail } from '../detail'
+import { openHandoverForHole } from '../handover-nav'
 
 const mines = ref([])
 const stats = ref([])
@@ -208,6 +217,12 @@ function select(h) {
 function openCreate() {
   form.value = { mineId: mineId.value, status: '施工', coordX: 0, coordY: 0, designDepth: 300, dipAngle: 90 }
   dialog.value = true
+}
+
+/** 从施工钻孔直接进入终孔交接台（班组视角选中该孔） */
+function gotoHandover(h) {
+  const tab = openHandoverForHole(h.id)
+  window.dispatchEvent(new CustomEvent('dc:navigate', { detail: { tab } }))
 }
 
 async function submitCreate() {

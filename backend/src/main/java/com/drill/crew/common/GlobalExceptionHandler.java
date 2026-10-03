@@ -23,6 +23,15 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 并发冲突：409 + 「数据已变化，请重新检查」。
+     * 乐观锁过期或两人同时发起交接导致生效版本唯一约束冲突时返回。
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConflict(ConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail(e.getMessage()));
+    }
+
+    /**
      * 参数注解校验失败：400 + 字段名与提示
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)

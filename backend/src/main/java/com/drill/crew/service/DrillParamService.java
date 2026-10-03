@@ -47,10 +47,13 @@ public class DrillParamService {
 
     private final DrillParamSeriesRepository seriesRepository;
     private final BoreholeRepository boreholeRepository;
+    private final HandoverLockService handoverLock;
 
-    public DrillParamService(DrillParamSeriesRepository seriesRepository, BoreholeRepository boreholeRepository) {
+    public DrillParamService(DrillParamSeriesRepository seriesRepository, BoreholeRepository boreholeRepository,
+                             HandoverLockService handoverLock) {
         this.seriesRepository = seriesRepository;
         this.boreholeRepository = boreholeRepository;
+        this.handoverLock = handoverLock;
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +72,7 @@ public class DrillParamService {
     @Transactional
     public DrillParamSeries createSeries(DrillParamSeries series) {
         validateSeries(series);
+        handoverLock.requireWritable(series.getBoreholeId(), "录入钻进参数时序");
         series.setId(null);
         series.setCreatedAt(LocalDateTime.now());
         return seriesRepository.save(series);
@@ -76,7 +80,9 @@ public class DrillParamService {
 
     @Transactional
     public void deleteSeries(Long id) {
-        seriesRepository.delete(getSeries(id));
+        DrillParamSeries series = getSeries(id);
+        handoverLock.requireWritable(series.getBoreholeId(), "删除钻进参数时序");
+        seriesRepository.delete(series);
     }
 
     /**

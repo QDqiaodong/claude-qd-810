@@ -32,10 +32,13 @@ public class MineService {
 
     private final MineRepository mineRepository;
     private final BoreholeRepository boreholeRepository;
+    private final HandoverLockService handoverLock;
 
-    public MineService(MineRepository mineRepository, BoreholeRepository boreholeRepository) {
+    public MineService(MineRepository mineRepository, BoreholeRepository boreholeRepository,
+                       HandoverLockService handoverLock) {
         this.mineRepository = mineRepository;
         this.boreholeRepository = boreholeRepository;
+        this.handoverLock = handoverLock;
     }
 
     @Transactional(readOnly = true)
@@ -128,6 +131,14 @@ public class MineService {
     @Transactional
     public Borehole updateBorehole(Long id, Borehole payload) {
         Borehole hole = getBorehole(id);
+        // 已接收冻结期间，实际孔深 / 孔状态 / 终孔日期这些直接影响交接结论的字段禁止改写；
+        // 坐标、倾角、备注等台账元数据不受此限。
+        boolean touchesFrozenData = payload.getActualDepth() != null
+                || payload.getStatus() != null
+                || payload.getFinalDate() != null;
+        if (touchesFrozenData) {
+            handoverLock.requireWritable(id, "修改孔深、孔状态或终孔日期");
+        }
         if (payload.getHoleNo() != null && !payload.getHoleNo().equals(hole.getHoleNo())
                 && boreholeRepository.existsByHoleNo(payload.getHoleNo())) {
             throw new BizException("孔号已存在：" + payload.getHoleNo());
@@ -143,6 +154,7 @@ public class MineService {
         if ("施工".equals(hole.getStatus())) {
             throw new BizException("钻孔【" + hole.getHoleNo() + "】正在施工，不能删除");
         }
+        handoverLock.requireDeletable(id);
         boreholeRepository.delete(hole);
     }
 

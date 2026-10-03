@@ -12,6 +12,8 @@ CREATE DATABASE IF NOT EXISTS drill_crew
   DEFAULT COLLATE utf8mb4_unicode_ci;
 USE drill_crew;
 
+DROP TABLE IF EXISTS handover_issue;
+DROP TABLE IF EXISTS handover;
 DROP TABLE IF EXISTS shift_report;
 DROP TABLE IF EXISTS drill_param_series;
 DROP TABLE IF EXISTS litho_layer;
@@ -159,6 +161,55 @@ CREATE TABLE shift_report (
   KEY idx_shift_rig (rig_id),
   KEY idx_shift_hole (borehole_id),
   KEY idx_shift_date (report_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------- 9. 钻孔终孔交接（版本链） ----------------------------
+-- 一个钻孔的一条交接线：每发起一次 / 整改后重新提交都新增一行（新版本）。
+-- active_flag = 1 的行【每孔至多一条】（uk_handover_active），表示当前生效版本；
+-- 历史版本与返开失效版本该列均为 NULL。
+-- status：PENDING_CHECK 待检查 / NEED_FIX 待整改 / ACCEPTED 已接收 / SUPERSEDED 已失效
+CREATE TABLE handover (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT,
+  borehole_id        BIGINT       NOT NULL COMMENT '交接钻孔',
+  version_no         INT          NOT NULL COMMENT '交接版本号（同一钻孔递增）',
+  status             VARCHAR(16)  NOT NULL COMMENT '待检查/待整改/已接收/已失效',
+  active_flag        TINYINT      DEFAULT NULL COMMENT '是否当前生效版本：1=是，NULL=历史/失效',
+  snapshot_depth     DECIMAL(8,2) NOT NULL COMMENT '发起/提交时的实际孔深快照 m',
+  snapshot           JSON         NOT NULL COMMENT '资料快照：孔信息+回次+岩性层+参数时序+班报',
+  issue_total        INT          NOT NULL DEFAULT 0 COMMENT '本版本问题项总数',
+  issue_open         INT          NOT NULL DEFAULT 0 COMMENT '待处理问题数',
+  submit_note        VARCHAR(255) DEFAULT NULL COMMENT '班组提交说明',
+  initiated_by       VARCHAR(32)  DEFAULT NULL COMMENT '发起人（班组长）',
+  initiated_at       DATETIME     DEFAULT NULL COMMENT '发起/重新提交时间',
+  checker_name       VARCHAR(32)  DEFAULT NULL COMMENT '检查负责人',
+  checked_at         DATETIME     DEFAULT NULL COMMENT '最近一次检查（退回/接收）时间',
+  reject_reason      VARCHAR(255) DEFAULT NULL COMMENT '本轮退回原因',
+  last_reject_reason VARCHAR(255) DEFAULT NULL COMMENT '上一轮退回原因（随新版本带出，可追溯）',
+  reopen_reason      VARCHAR(255) DEFAULT NULL COMMENT '接收后返开原因（仅失效版本）',
+  lock_version       INT          NOT NULL DEFAULT 0 COMMENT '乐观锁：两人同时处理时后提交者看到数据已变化',
+  created_at         DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_handover_ver (borehole_id, version_no),
+  UNIQUE KEY uk_handover_active (borehole_id, active_flag),
+  KEY idx_handover_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------- 10. 交接问题项（随版本保存） ----------------------------
+-- 问题项绑定到具体资料（target_type + target_id），点击可直接跳回对应录入页整改。
+-- 回次/岩性层不连续不重叠、低采取率缺原因、参数异常、班报缺签字都会落为明确问题项。
+CREATE TABLE handover_issue (
+  id           BIGINT       NOT NULL AUTO_INCREMENT,
+  handover_id  BIGINT       NOT NULL COMMENT '所属交接版本',
+  issue_type   VARCHAR(22)  NOT NULL COMMENT 'ROUND_GAP/ROUND_LOW_RECOVERY/LAYER_GAP/PARAM_ABNORMAL/REPORT_UNSIGNED',
+  target_type  VARCHAR(16)  NOT NULL COMMENT 'round/layer/series/report',
+  target_id    BIGINT       DEFAULT NULL COMMENT '对应资料主键（连续性问题可为空）',
+  target_label VARCHAR(128) DEFAULT NULL COMMENT '资料定位文本，如 第3回次 / 2024-08-11 早班',
+  issue_key    VARCHAR(120) NOT NULL COMMENT '问题稳定标识：按当前资料重算后用于判定是否已消除',
+  message      VARCHAR(255) NOT NULL COMMENT '问题描述',
+  status       VARCHAR(10)  NOT NULL DEFAULT 'OPEN' COMMENT 'OPEN 待处理 / RESOLVED 已处理',
+  PRIMARY KEY (id),
+  KEY idx_issue_handover (handover_id),
+  KEY idx_issue_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
